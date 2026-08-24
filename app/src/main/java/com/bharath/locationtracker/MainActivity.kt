@@ -24,7 +24,14 @@ class MainActivity : ComponentActivity() {
     private var locationText by mutableStateOf("No location fetched yet")
     private var deviceId by mutableStateOf("")
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p ->
-        status = if (p[Manifest.permission.ACCESS_FINE_LOCATION] == true || p[Manifest.permission.ACCESS_COARSE_LOCATION] == true) "Location permission granted" else "Location permission denied"
+        val granted = p[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            p[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            status = "Location permission granted. Fetching location..."
+            fetchAndUploadLocation()
+        } else {
+            status = "Location permission denied"
+        }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
