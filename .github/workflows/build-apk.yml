@@ -24,9 +24,9 @@ jobs:
       - name: Bootstrap Gradle wrapper
         run: |
           if [ ! -f ./gradlew ]; then
-            curl -sSL https://services.gradle.org/distributions/gradle-9.1.0-bin.zip -o gradle.zip
+            curl -sSL https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o gradle.zip
             unzip -q gradle.zip
-            ./gradle-9.1.0/bin/gradle wrapper --gradle-version 9.1.0
+            ./gradle-9.3.1/bin/gradle wrapper --gradle-version 9.3.1
             chmod +x ./gradlew
           fi
 
