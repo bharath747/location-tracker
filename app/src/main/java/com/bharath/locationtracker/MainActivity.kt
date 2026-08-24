@@ -54,13 +54,20 @@ class MainActivity : ComponentActivity() {
     }
     private fun requestLocationPermission() { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
     private fun fetchAndUploadLocation() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) { status = "Please grant location permission first"; return }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            status = "Please grant location permission first"
+            return
+        }
         status = "Fetching location..."
-        LocationServices.getFusedLocationProviderClient(this).lastLocation.addOnSuccessListener { loc ->
-            if (loc == null) { status = "Location unavailable. Turn on GPS and try again."; return@addOnSuccessListener }
-            locationText = String.format(Locale.US, "Latitude: %.6f\nLongitude: %.6f\nAccuracy: %.1f m", loc.latitude, loc.longitude, loc.accuracy)
-            uploadLocation(loc.latitude, loc.longitude, loc.accuracy)
-        }.addOnFailureListener { e -> status = "Location error: ${e.message}" }
+        lifecycleScope.launch {
+            try {
+                locationText = LocationRepository.fetchAndUpload(this@MainActivity)
+                status = "Location uploaded to Firebase"
+            } catch (e: Exception) {
+                status = "Location error: ${e.message}"
+            }
+        }
     }
     private fun uploadLocation(lat: Double, lng: Double, accuracy: Float) {
         val (level, charging) = batteryInfo()
