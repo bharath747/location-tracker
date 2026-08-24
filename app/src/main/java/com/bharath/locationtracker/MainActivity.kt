@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
     private var status by mutableStateOf("Connecting to Firebase...")
     private var locationText by mutableStateOf("No location fetched yet")
     private var deviceId by mutableStateOf("")
+    private var trackingActive by mutableStateOf(false)
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p ->
         val granted = p[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             p[Manifest.permission.ACCESS_COARSE_LOCATION] == true
@@ -38,7 +39,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         deviceId = getTrackerDeviceId()
         signInAndRegister()
-        setContent { MaterialTheme { TrackerScreen(status, locationText, deviceId, { requestLocationPermission() }, { fetchAndUploadLocation() }) } }
+        setContent { MaterialTheme { TrackerScreen(status, locationText, deviceId, trackingActive, { requestLocationPermission() }, { fetchAndUploadLocation() }, { startTracking() }, { stopTracking() }) } }
     }
     private fun getTrackerDeviceId(): String {
         val prefs = getSharedPreferences("tracker", Context.MODE_PRIVATE)
@@ -51,6 +52,19 @@ class MainActivity : ComponentActivity() {
     private fun registerDevice() {
         val data = hashMapOf<String, Any?>("deviceId" to deviceId, "firebaseUid" to FirebaseAuth.getInstance().currentUser?.uid, "manufacturer" to Build.MANUFACTURER, "model" to Build.MODEL, "deviceName" to "${Build.MANUFACTURER} ${Build.MODEL}", "androidVersion" to Build.VERSION.RELEASE, "lastSeen" to FieldValue.serverTimestamp())
         FirebaseFirestore.getInstance().collection("devices").document(deviceId).set(data).addOnSuccessListener { status = "Device registered with Firebase" }.addOnFailureListener { e -> status = "Registration failed: ${e.message}" }
+    }
+    private fun startTracking() {
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!granted) { status = "Grant location permission before starting tracking"; return }
+        ContextCompat.startForegroundService(this, Intent(this, TrackingService::class.java))
+        trackingActive = true
+        status = "Background tracking started"
+    }
+    private fun stopTracking() {
+        stopService(Intent(this, TrackingService::class.java))
+        trackingActive = false
+        status = "Background tracking stopped"
     }
     private fun requestLocationPermission() { permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
     private fun fetchAndUploadLocation() {
@@ -84,7 +98,7 @@ class MainActivity : ComponentActivity() {
         return level to ((intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0)
     }
 }
-@Composable private fun TrackerScreen(status: String, location: String, deviceId: String, onGrant: () -> Unit, onFetch: () -> Unit) {
+@Composable private fun TrackerScreen(status: String, location: String, deviceId: String, trackingActive: Boolean, onGrant: () -> Unit, onFetch: () -> Unit, onStart: () -> Unit, onStop: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Location Tracker", style = MaterialTheme.typography.headlineMedium)
         Text("Status: $status")
@@ -94,5 +108,8 @@ class MainActivity : ComponentActivity() {
         }}
         Button(onClick = onGrant, modifier = Modifier.fillMaxWidth()) { Text("Grant Location Permission") }
         Button(onClick = onFetch, modifier = Modifier.fillMaxWidth()) { Text("Fetch & Upload Location") }
+        Text("Background Tracking: " + if (trackingActive) "ACTIVE" else "STOPPED")
+        if (!trackingActive) Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start Background Tracking") }
+        else OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("Stop Background Tracking") }
     }
 }
