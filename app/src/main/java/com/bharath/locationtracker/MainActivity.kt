@@ -27,10 +27,12 @@ class MainActivity : ComponentActivity() {
         status = if (p[Manifest.permission.ACCESS_FINE_LOCATION] == true || p[Manifest.permission.ACCESS_COARSE_LOCATION] == true) "Location permission granted" else "Location permission denied"
     }
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState); deviceId = getDeviceId(); signInAndRegister()
+        super.onCreate(savedInstanceState)
+        deviceId = getTrackerDeviceId()
+        signInAndRegister()
         setContent { MaterialTheme { TrackerScreen(status, locationText, deviceId, { requestLocationPermission() }, { fetchAndUploadLocation() }) } }
     }
-    private fun getDeviceId(): String {
+    private fun getTrackerDeviceId(): String {
         val prefs = getSharedPreferences("tracker", Context.MODE_PRIVATE)
         return prefs.getString("deviceId", null) ?: Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).also { prefs.edit().putString("deviceId", it).apply() }
     }
@@ -69,8 +71,12 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun TrackerScreen(status: String, location: String, deviceId: String, onGrant: () -> Unit, onFetch: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Location Tracker", style = MaterialTheme.typography.headlineMedium); Text("Status: $status")
-        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text("Device ID", style = MaterialTheme.typography.titleSmall); Text(deviceId); Spacer(Modifier.height(12.dp)); Text("Current Location", style = MaterialTheme.typography.titleMedium); Text(location) } }
+        Text("Location Tracker", style = MaterialTheme.typography.headlineMedium)
+        Text("Status: $status")
+        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+            Text("Device ID", style = MaterialTheme.typography.titleSmall); Text(deviceId)
+            Spacer(Modifier.height(12.dp)); Text("Current Location", style = MaterialTheme.typography.titleMedium); Text(location)
+        }}
         Button(onClick = onGrant, modifier = Modifier.fillMaxWidth()) { Text("Grant Location Permission") }
         Button(onClick = onFetch, modifier = Modifier.fillMaxWidth()) { Text("Fetch & Upload Location") }
     }
