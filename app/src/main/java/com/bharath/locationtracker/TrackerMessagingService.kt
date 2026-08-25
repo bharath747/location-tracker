@@ -7,6 +7,9 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class TrackerMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
@@ -20,9 +23,8 @@ class TrackerMessagingService : FirebaseMessagingService() {
         when (message.data["action"]?.uppercase()) {
             "RING" -> ContextCompat.startForegroundService(this, Intent(this, AlarmService::class.java))
             "STOP_RING" -> stopService(Intent(this, AlarmService::class.java))
-            "FETCH_LOCATION" -> {
-                val deviceId = message.data["deviceId"] ?: return
-                LocationRepository.fetchAndUploadAsync(this, deviceId)
+            "FETCH_LOCATION" -> CoroutineScope(Dispatchers.IO).launch {
+                runCatching { LocationRepository.fetchAndUpload(this@TrackerMessagingService) }
             }
         }
     }
