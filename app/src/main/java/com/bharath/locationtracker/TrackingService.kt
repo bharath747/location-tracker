@@ -6,25 +6,49 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.work.*
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 class TrackingService : Service() {
     private var listener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var commandListener: com.google.firebase.firestore.ListenerRegistration? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createChannel()
         startForeground(1001, NotificationCompat.Builder(this, "tracking").setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle("Location tracking active").setContentText("Interval controlled by Firebase").build())
         scheduleFromFirebase()
+        listenForCommands()
         return START_STICKY
     }
     private fun scheduleFromFirebase() {
         val id = LocationRepository.getDeviceId(this)
         listener?.remove()
-        listener = com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("devices").document(id).collection("config").document("tracking").addSnapshotListener { snap, _ ->
+        listener = FirebaseFirestore.getInstance().collection("devices").document(id).collection("config").document("tracking").addSnapshotListener { snap, _ ->
             val enabled = snap?.getBoolean("trackingEnabled") ?: true
             val minutes = (snap?.getLong("intervalMinutes") ?: 15L).coerceAtLeast(15L)
             if (enabled) schedule(minutes) else WorkManager.getInstance(this).cancelUniqueWork("location-tracking")
+        }
+    }
+    private fun listenForCommands() {
+        val deviceRef = FirebaseFirestore.getInstance().collection("devices").document(LocationRepository.getDeviceId(this))
+        commandListener?.remove()
+        commandListener = deviceRef.collection("commands").whereEqualTo("status", "PENDING").addSnapshotListener { snapshots, _ ->
+            snapshots?.documents?.forEach { command ->
+                val action = command.getString("action")?.uppercase() ?: return@forEach
+                command.reference.update("status", "PROCESSING")
+                when (action) {
+                    "RING" -> {
+                        ContextCompat.startForegroundService(this, Intent(this, AlarmService::class.java))
+                        command.reference.update(mapOf("status" to "EXECUTED", "executedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()))
+                    }
+                    "STOP_RING" -> {
+                        stopService(Intent(this, AlarmService::class.java))
+                        command.reference.update(mapOf("status" to "EXECUTED", "executedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()))
+                    }
+                    else -> command.reference.update("status", "IGNORED")
+                }
+            }
         }
     }
     private fun schedule(minutes: Long) {
@@ -34,7 +58,7 @@ class TrackingService : Service() {
     private fun createChannel() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel("tracking", "Location Tracking", NotificationManager.IMPORTANCE_LOW))
     }
-    override fun onDestroy() { listener?.remove(); WorkManager.getInstance(this).cancelUniqueWork("location-tracking"); super.onDestroy() }
+    override fun onDestroy() { listener?.remove(); commandListener?.remove(); WorkManager.getInstance(this).cancelUniqueWork("location-tracking"); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 }
 class LocationWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
