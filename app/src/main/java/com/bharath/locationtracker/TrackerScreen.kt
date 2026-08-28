@@ -6,7 +6,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 data class AdminDevice(
@@ -15,7 +14,9 @@ data class AdminDevice(
     val battery: String,
     val latitude: Double?,
     val longitude: Double?,
-    val locationFetchedAt: String = "Not available"
+    val locationFetchedAt: String = "Not available",
+    val statusFetchedAt: String = "Not available",
+    val statusDetails: List<Pair<String, String>> = emptyList()
 )
 
 @Composable
@@ -23,25 +24,14 @@ fun RegistrationScreen(onRegister: (String) -> Unit, status: String) {
     var name by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Location Tracker", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text("Give this device a unique name", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(20.dp))
-        OutlinedTextField(name, { name = it }, label = { Text("Device name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(12.dp))
-        Button({ onRegister(name) }, modifier = Modifier.fillMaxWidth()) { Text("Register Device") }
-        Spacer(Modifier.height(12.dp))
-        Text(status, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(8.dp)); Text("Give this device a unique name", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(20.dp)); OutlinedTextField(name, { name = it }, label = { Text("Device name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(12.dp)); Button({ onRegister(name) }, modifier = Modifier.fillMaxWidth()) { Text("Register Device") }
+        Spacer(Modifier.height(12.dp)); Text(status, style = MaterialTheme.typography.bodySmall)
     }
 }
 
-@Composable
-private fun SectionCard(title: String, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        content()
-    } }
-}
+@Composable private fun SectionCard(title: String, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); content() } } }
 
 @Composable
 fun TrackerScreen(status: String, location: String, deviceId: String, tracking: Boolean, alarm: String, listener: String, lastCommand: String, commandResult: String, onGrant: () -> Unit, onFetch: () -> Unit, onStart: () -> Unit, onStop: () -> Unit, onRing: () -> Unit, onStopAlarm: () -> Unit, onAdmin: () -> Unit) {
