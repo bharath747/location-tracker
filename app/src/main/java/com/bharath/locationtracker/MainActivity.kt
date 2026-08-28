@@ -8,16 +8,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Button
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.Timestamp
@@ -38,56 +30,12 @@ class MainActivity : ComponentActivity() {
     private var showAdminPinDialog by mutableStateOf(false)
     private var adminDevices by mutableStateOf<List<AdminDevice>>(emptyList())
     private var adminStatus by mutableStateOf("")
-
     private val adminPin = "12@#34£_56&-"
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions -> if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) fetchAndUploadLocation() else status = "Location permission denied" }
 
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-        if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) fetchAndUploadLocation() else status = "Location permission denied"
-    }
+    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); deviceId = LocationRepository.getDeviceId(this); trackingActive = prefs().getBoolean("trackingEnabled", false); if (deviceId.isNotBlank()) signInAndRegister(); if (trackingActive && deviceId.isNotBlank()) restoreTrackingIfPossible(); setContent { MaterialTheme(colorScheme = lightColorScheme()) { Surface { when { deviceId.isBlank() -> RegistrationScreen(::registerName, status); adminMode -> AdminScreen(adminDevices, adminStatus, ::loadDevices, { sendCommand(it, "FETCH_LOCATION") }, { sendCommand(it, "FETCH_DEVICE_STATUS") }, { sendCommand(it, "RING") }, { sendCommand(it, "STOP_RING") }, { updateInterval(it.first, it.second) }, ::openGoogleMaps, ::removeDevice, { adminMode = false }); else -> TrackerScreen(status, locationText, deviceId, trackingActive, alarmStatus, TrackerRuntimeStatus.commandListenerStatus, TrackerRuntimeStatus.lastCommand, TrackerRuntimeStatus.lastCommandResult, ::requestLocationPermission, ::fetchAndUploadLocation, ::startTracking, ::stopTracking, ::testRing, ::stopAlarm, { showAdminPinDialog = true }) }; if (showAdminPinDialog) AdminPinDialog({ showAdminPinDialog = false }) { showAdminPinDialog = false; adminMode = true; loadDevices() } } } } }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        deviceId = LocationRepository.getDeviceId(this)
-        trackingActive = prefs().getBoolean("trackingEnabled", false)
-        if (deviceId.isNotBlank()) signInAndRegister()
-        if (trackingActive && deviceId.isNotBlank()) restoreTrackingIfPossible()
-        setContent {
-            MaterialTheme(colorScheme = lightColorScheme()) {
-                Surface {
-                    when {
-                        deviceId.isBlank() -> RegistrationScreen(onRegister = ::registerName, status = status)
-                        adminMode -> AdminScreen(devices = adminDevices, status = adminStatus, onRefresh = ::loadDevices, onFetch = { sendCommand(it, "FETCH_LOCATION") }, onRing = { sendCommand(it, "RING") }, onStop = { sendCommand(it, "STOP_RING") }, onInterval = { updateInterval(it.first, it.second) }, onMap = ::openGoogleMaps, onRemove = ::removeDevice, onBack = { adminMode = false })
-                        else -> TrackerScreen(status, locationText, deviceId, trackingActive, alarmStatus, TrackerRuntimeStatus.commandListenerStatus, TrackerRuntimeStatus.lastCommand, TrackerRuntimeStatus.lastCommandResult, ::requestLocationPermission, ::fetchAndUploadLocation, ::startTracking, ::stopTracking, ::testRing, ::stopAlarm, { showAdminPinDialog = true })
-                    }
-                    if (showAdminPinDialog) AdminPinDialog(onDismiss = { showAdminPinDialog = false }, onSuccess = { showAdminPinDialog = false; adminMode = true; loadDevices() })
-                }
-            }
-        }
-    }
-
-    @androidx.compose.runtime.Composable
-    private fun AdminPinDialog(onDismiss: () -> Unit, onSuccess: () -> Unit) {
-        var pin by androidx.compose.runtime.remember { mutableStateOf("") }
-        var error by androidx.compose.runtime.remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("Admin Access") },
-            text = {
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it; error = false },
-                    label = { Text("Admin PIN") },
-                    isError = error,
-                    supportingText = { if (error) Text("Incorrect PIN") }
-                )
-            },
-            confirmButton = {
-                Button(onClick = { if (pin == adminPin) onSuccess() else error = true }) { Text("Unlock") }
-            },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-        )
-    }
-
+    @Composable private fun AdminPinDialog(onDismiss: () -> Unit, onSuccess: () -> Unit) { var pin by remember { mutableStateOf("") }; var error by remember { mutableStateOf(false) }; AlertDialog(onDismissRequest = onDismiss, title = { Text("Admin Access") }, text = { OutlinedTextField(pin, { pin = it; error = false }, label = { Text("Admin PIN") }, isError = error, supportingText = { if (error) Text("Incorrect PIN") }) }, confirmButton = { Button({ if (pin == adminPin) onSuccess() else error = true }) { Text("Unlock") } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } }) }
     private fun prefs() = getSharedPreferences("tracker", Context.MODE_PRIVATE)
     private fun registerName(name: String) { val clean = name.trim().replace(Regex("\\s+"), " "); if (clean.length < 2) { status = "Enter a valid device name"; return }; deviceId = clean; prefs().edit().putString("deviceId", clean).apply(); status = "Registering device..."; signInAndRegister() }
     private fun signInAndRegister() { val auth = FirebaseAuth.getInstance(); if (auth.currentUser != null) registerDevice() else auth.signInAnonymously().addOnSuccessListener { registerDevice() }.addOnFailureListener { status = "Firebase login failed: ${it.message}" } }
