@@ -9,7 +9,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-data class AdminDevice(val id: String, val name: String, val battery: String, val latitude: Double?, val longitude: Double?)
+data class AdminDevice(
+    val id: String,
+    val name: String,
+    val battery: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val locationFetchedAt: String = "Not available"
+)
 
 @Composable
 fun RegistrationScreen(onRegister: (String) -> Unit, status: String) {
