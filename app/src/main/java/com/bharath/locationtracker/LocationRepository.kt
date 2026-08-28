@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.location.Location
 import android.os.BatteryManager
-import android.provider.Settings
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.Tasks
@@ -22,14 +21,17 @@ import kotlin.coroutines.resumeWithException
 
 object LocationRepository {
     fun getDeviceId(context: Context): String {
-        val prefs = context.getSharedPreferences("tracker", Context.MODE_PRIVATE)
-        return prefs.getString("deviceId", null) ?: Settings.Secure.getString(
-            context.contentResolver, Settings.Secure.ANDROID_ID
-        ).also { prefs.edit().putString("deviceId", it).apply() }
+        return context.getSharedPreferences("tracker", Context.MODE_PRIVATE)
+            .getString("deviceId", null)
+            ?.trim()
+            .orEmpty()
     }
 
     @SuppressLint("MissingPermission")
     suspend fun fetchAndUpload(context: Context): String {
+        val deviceId = getDeviceId(context)
+        if (deviceId.isBlank()) throw IllegalStateException("Device is not registered")
+
         val client = LocationServices.getFusedLocationProviderClient(context)
         val location = suspendCancellableCoroutine<Location> { cont ->
             client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
@@ -55,29 +57,11 @@ object LocationRepository {
         )
 
         withContext(Dispatchers.IO) {
-            val doc = FirebaseFirestore.getInstance()
-                .collection("devices")
-                .document(getDeviceId(context))
-            Tasks.await(
-                doc.set(data, com.google.firebase.firestore.SetOptions.merge()),
-                30,
-                TimeUnit.SECONDS
-            )
-            Tasks.await(
-                doc.collection("locationHistory").add(
-                    data + mapOf("recordedAt" to FieldValue.serverTimestamp())
-                ),
-                30,
-                TimeUnit.SECONDS
-            )
+            val doc = FirebaseFirestore.getInstance().collection("devices").document(deviceId)
+            Tasks.await(doc.set(data, com.google.firebase.firestore.SetOptions.merge()), 30, TimeUnit.SECONDS)
+            Tasks.await(doc.collection("locationHistory").add(data + mapOf("recordedAt" to FieldValue.serverTimestamp())), 30, TimeUnit.SECONDS)
         }
 
-        return String.format(
-            Locale.US,
-            "Latitude: %.6f\nLongitude: %.6f\nAccuracy: %.1f m",
-            location.latitude,
-            location.longitude,
-            location.accuracy
-        )
+        return String.format(Locale.US, "Latitude: %.6f\nLongitude: %.6f\nAccuracy: %.1f m", location.latitude, location.longitude, location.accuracy)
     }
 }
