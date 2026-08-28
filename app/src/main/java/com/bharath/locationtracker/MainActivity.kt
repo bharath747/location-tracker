@@ -8,9 +8,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -31,8 +35,11 @@ class MainActivity : ComponentActivity() {
     private var trackingActive by mutableStateOf(false)
     private var alarmStatus by mutableStateOf("IDLE")
     private var adminMode by mutableStateOf(false)
+    private var showAdminPinDialog by mutableStateOf(false)
     private var adminDevices by mutableStateOf<List<AdminDevice>>(emptyList())
     private var adminStatus by mutableStateOf("")
+
+    private val adminPin = "12@#34£_56&-"
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) fetchAndUploadLocation() else status = "Location permission denied"
@@ -50,11 +57,35 @@ class MainActivity : ComponentActivity() {
                     when {
                         deviceId.isBlank() -> RegistrationScreen(onRegister = ::registerName, status = status)
                         adminMode -> AdminScreen(devices = adminDevices, status = adminStatus, onRefresh = ::loadDevices, onFetch = { sendCommand(it, "FETCH_LOCATION") }, onRing = { sendCommand(it, "RING") }, onStop = { sendCommand(it, "STOP_RING") }, onInterval = { updateInterval(it.first, it.second) }, onMap = ::openGoogleMaps, onRemove = ::removeDevice, onBack = { adminMode = false })
-                        else -> TrackerScreen(status, locationText, deviceId, trackingActive, alarmStatus, TrackerRuntimeStatus.commandListenerStatus, TrackerRuntimeStatus.lastCommand, TrackerRuntimeStatus.lastCommandResult, ::requestLocationPermission, ::fetchAndUploadLocation, ::startTracking, ::stopTracking, ::testRing, ::stopAlarm, { adminMode = true; loadDevices() })
+                        else -> TrackerScreen(status, locationText, deviceId, trackingActive, alarmStatus, TrackerRuntimeStatus.commandListenerStatus, TrackerRuntimeStatus.lastCommand, TrackerRuntimeStatus.lastCommandResult, ::requestLocationPermission, ::fetchAndUploadLocation, ::startTracking, ::stopTracking, ::testRing, ::stopAlarm, { showAdminPinDialog = true })
                     }
+                    if (showAdminPinDialog) AdminPinDialog(onDismiss = { showAdminPinDialog = false }, onSuccess = { showAdminPinDialog = false; adminMode = true; loadDevices() })
                 }
             }
         }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun AdminPinDialog(onDismiss: () -> Unit, onSuccess: () -> Unit) {
+        var pin by androidx.compose.runtime.remember { mutableStateOf("") }
+        var error by androidx.compose.runtime.remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Admin Access") },
+            text = {
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it; error = false },
+                    label = { Text("Admin PIN") },
+                    isError = error,
+                    supportingText = { if (error) Text("Incorrect PIN") }
+                )
+            },
+            confirmButton = {
+                Button(onClick = { if (pin == adminPin) onSuccess() else error = true }) { Text("Unlock") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        )
     }
 
     private fun prefs() = getSharedPreferences("tracker", Context.MODE_PRIVATE)
@@ -69,13 +100,7 @@ class MainActivity : ComponentActivity() {
     private fun stopAlarm() { stopService(Intent(this, AlarmService::class.java)); alarmStatus = "IDLE"; status = "Alarm stopped" }
     private fun requestLocationPermission() = permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     private fun fetchAndUploadLocation() { if (!hasLocationPermission()) { status = "Please grant location permission"; return }; status = "Fetching current location..."; lifecycleScope.launch { try { locationText = LocationRepository.fetchAndUpload(this@MainActivity); status = "Location updated successfully" } catch (e: Exception) { status = "Location error: ${e.message}" } } }
-
-    private fun formatTimestamp(value: Any?): String = when (value) {
-        is Timestamp -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(value.toDate())
-        is Date -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(value)
-        else -> "Not available"
-    }
-
+    private fun formatTimestamp(value: Any?): String = when (value) { is Timestamp -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(value.toDate()); is Date -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(value); else -> "Not available" }
     private fun loadDevices() { adminStatus = "Loading devices..."; FirebaseFirestore.getInstance().collection("devices").get().addOnSuccessListener { query -> adminDevices = query.documents.map { d -> val lat = (d.get("latitude") as? Number)?.toDouble(); val lon = (d.get("longitude") as? Number)?.toDouble(); AdminDevice(d.id, d.getString("deviceName") ?: d.id, d.get("batteryLevel")?.toString() ?: "Unknown", lat, lon, formatTimestamp(d.get("locationFetchedAt"))) }; adminStatus = "${adminDevices.size} device(s) available" }.addOnFailureListener { adminStatus = "Load failed: ${it.message}" } }
     private fun openGoogleMaps(device: AdminDevice) { val lat = device.latitude ?: run { adminStatus = "No location available"; return }; val lon = device.longitude ?: run { adminStatus = "No location available"; return }; startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("geo:$lat,$lon?q=$lat,$lon"))) }
     private fun removeDevice(id: String) { adminStatus = "Removing device..."; FirebaseFirestore.getInstance().collection("devices").document(id).delete().addOnSuccessListener { adminDevices = adminDevices.filterNot { it.id == id }; adminStatus = "Device removed" }.addOnFailureListener { adminStatus = "Remove failed: ${it.message}" } }
