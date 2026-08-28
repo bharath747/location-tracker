@@ -9,6 +9,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.StatFs
 import android.provider.Settings
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -86,15 +88,15 @@ class TrackingService : Service() {
     private fun complete(ref: com.google.firebase.firestore.DocumentReference, ok: Boolean) { ref.update("status", if (ok) "EXECUTED" else "FAILED", "executedAt", FieldValue.serverTimestamp()); TrackerRuntimeStatus.lastCommandResult = if (ok) "EXECUTED" else "FAILED" }
     private fun fail(ref: com.google.firebase.firestore.DocumentReference, message: String) { ref.update("status", "FAILED", "error", message); TrackerRuntimeStatus.lastCommandResult = "FAILED: $message" }
 
-    private fun uploadDeviceStatus() {
+    private suspend fun uploadDeviceStatus() {
         val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
         val percent = if (level >= 0 && scale > 0) ((level * 100f) / scale).toInt() else -1
         val plugged = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
         val charging = plugged != 0 || battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) == BatteryManager.BATTERY_STATUS_CHARGING
-        val powerSave = getSystemService(PowerManager::class.java)?.isPowerSaveMode ?: false
-        val cm = getSystemService(ConnectivityManager::class.java)
+        val powerSave = (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isPowerSaveMode ?: false
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
         val network = when {
             caps == null -> "Offline"
@@ -103,7 +105,7 @@ class TrackingService : Service() {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
             else -> "Connected"
         }
-        val locationEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) getSystemService(android.location.LocationManager::class.java)?.isLocationEnabled ?: false else Settings.Secure.getInt(contentResolver, Settings.Secure.LOCATION_MODE, Settings.Secure.LOCATION_MODE_OFF) != Settings.Secure.LOCATION_MODE_OFF
+        val locationEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) (getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager)?.isLocationEnabled ?: false else Settings.Secure.getInt(contentResolver, Settings.Secure.LOCATION_MODE, Settings.Secure.LOCATION_MODE_OFF) != Settings.Secure.LOCATION_MODE_OFF
         val fine = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val notifications = if (Build.VERSION.SDK_INT >= 33) ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED else true
@@ -134,7 +136,7 @@ class TrackingService : Service() {
             "storageUsedBytes" to (total - free),
             "statusFetchedAt" to FieldValue.serverTimestamp(),
             "lastSeen" to FieldValue.serverTimestamp()
-        )).get()
+        )).await()
     }
 
     private fun schedule(minutes: Long) { val request = PeriodicWorkRequestBuilder<LocationWorker>(minutes, TimeUnit.MINUTES).build(); WorkManager.getInstance(this).enqueueUniquePeriodicWork("location-tracking", ExistingPeriodicWorkPolicy.UPDATE, request) }
