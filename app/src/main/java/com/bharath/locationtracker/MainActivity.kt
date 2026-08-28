@@ -3,6 +3,7 @@ package com.bharath.locationtracker
 import android.Manifest
 import android.content.*
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.*
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -22,7 +23,15 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 
-data class AdminDevice(val id: String, val name: String, val model: String, val battery: String, val location: String)
+data class AdminDevice(
+    val id: String,
+    val name: String,
+    val model: String,
+    val battery: String,
+    val location: String,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)
 
 class MainActivity : ComponentActivity() {
     private var status by mutableStateOf("Connecting to Firebase...")
@@ -43,13 +52,20 @@ class MainActivity : ComponentActivity() {
         deviceId = getTrackerDeviceId()
         trackingActive = getSharedPreferences("tracker", Context.MODE_PRIVATE).getBoolean("trackingEnabled", false)
         signInAndRegister()
-        if (trackingActive) {
-            restoreTrackingIfPossible()
-        }
+        if (trackingActive) restoreTrackingIfPossible()
         setContent {
             MaterialTheme {
                 if (adminMode) {
-                    AdminScreen(adminDevices, adminStatus, { loadDevices() }, { sendCommand(it, "FETCH_LOCATION") }, { sendCommand(it, "RING") }, { sendCommand(it, "STOP_RING") }, { updateInterval(it.first, it.second) }, { adminMode = false })
+                    AdminScreen(
+                        adminDevices, adminStatus,
+                        { loadDevices() },
+                        { sendCommand(it, "FETCH_LOCATION") },
+                        { sendCommand(it, "RING") },
+                        { sendCommand(it, "STOP_RING") },
+                        { updateInterval(it.first, it.second) },
+                        { openGoogleMaps(it) },
+                        { adminMode = false }
+                    )
                 } else {
                     TrackerScreen(
                         status, locationText, deviceId, trackingActive, alarmStatus,
@@ -155,10 +171,37 @@ class MainActivity : ComponentActivity() {
         adminStatus = "Loading devices..."
         FirebaseFirestore.getInstance().collection("devices").get().addOnSuccessListener { q ->
             adminDevices = q.documents.map { d ->
-                AdminDevice(d.id, d.getString("deviceName") ?: d.id, d.getString("model") ?: "", d.get("batteryLevel")?.toString() ?: "Unknown", listOfNotNull(d.get("latitude"), d.get("longitude")).joinToString(", ").ifBlank { "No location" })
+                val lat = (d.get("latitude") as? Number)?.toDouble()
+                val lon = (d.get("longitude") as? Number)?.toDouble()
+                AdminDevice(
+                    id = d.id,
+                    name = d.getString("deviceName") ?: d.id,
+                    model = d.getString("model") ?: "",
+                    battery = d.get("batteryLevel")?.toString() ?: "Unknown",
+                    location = if (lat != null && lon != null) "$lat, $lon" else "No location",
+                    latitude = lat,
+                    longitude = lon
+                )
             }
             adminStatus = "${adminDevices.size} device(s) loaded"
         }.addOnFailureListener { adminStatus = "Load failed: ${it.message}" }
+    }
+
+    private fun openGoogleMaps(device: AdminDevice) {
+        val lat = device.latitude
+        val lon = device.longitude
+        if (lat == null || lon == null) {
+            adminStatus = "No location available for ${device.name}"
+            return
+        }
+        try {
+            val url = "https://www.google.com/maps/search/?api=1&query=$lat,$lon"
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+            adminStatus = "Opening ${device.name} location in Google Maps"
+        } catch (e: Exception) {
+            adminStatus = "Could not open map: ${e.message}"
+        }
     }
 
     private fun sendCommand(id: String, action: String) {
@@ -206,7 +249,17 @@ private fun TrackerScreen(status: String, location: String, deviceId: String, tr
 }
 
 @Composable
-private fun AdminScreen(devices: List<AdminDevice>, status: String, onRefresh: () -> Unit, onFetch: (String) -> Unit, onRing: (String) -> Unit, onStop: (String) -> Unit, onInterval: (Pair<String, Int>) -> Unit, onBack: () -> Unit) {
+private fun AdminScreen(
+    devices: List<AdminDevice>,
+    status: String,
+    onRefresh: () -> Unit,
+    onFetch: (String) -> Unit,
+    onRing: (String) -> Unit,
+    onStop: (String) -> Unit,
+    onInterval: (Pair<String, Int>) -> Unit,
+    onMap: (AdminDevice) -> Unit,
+    onBack: () -> Unit
+) {
     var interval by remember { mutableStateOf("15") }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -226,6 +279,11 @@ private fun AdminScreen(devices: List<AdminDevice>, status: String, onRefresh: (
                     Text("Model: ${d.model}")
                     Text("Battery: ${d.battery}")
                     Text("Location: ${d.location}")
+                    if (d.latitude != null && d.longitude != null) {
+                        Button(onClick = { onMap(d) }, modifier = Modifier.fillMaxWidth()) { Text("View Location on Google Maps") }
+                    } else {
+                        Text("Fetch location first to enable map view", style = MaterialTheme.typography.bodySmall)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { onFetch(d.id) }) { Text("Fetch") }
                         Button(onClick = { onRing(d.id) }) { Text("Ring") }
